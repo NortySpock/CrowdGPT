@@ -1,0 +1,71 @@
+services:
+  crowdgpt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host
+      args:
+        PYTORCH_IMAGE: "${PYTORCH_IMAGE:-pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime}"
+    image: crowdgpt:latest
+    container_name: crowdgpt
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 2m
+    shm_size: "8gb"
+
+    # Use host networking so both build and runtime work even when the Docker
+    # daemon runs with `"iptables": false` (no bridge NAT/MASQUERADE).
+    network_mode: host
+
+    environment:
+      HOME: /home/crowd
+      HF_HOME: /app/checkpoints/hf_home
+      TORCH_HOME: /app/checkpoints/torch_home
+      CUDA_CACHE_PATH: /app/checkpoints/cuda_cache
+
+      # NVIDIA container runtime
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+
+      # CrowdGPT settings
+      CROWDGPT_ENGRAM: "${CROWDGPT_ENGRAM:-1}"
+      CROWDGPT_ANON: "${CROWDGPT_ANON:-1}"
+      CROWDGPT_NO_UPDATE: "${CROWDGPT_NO_UPDATE:-0}"
+      CROWDGPT_NO_TOKENIZER: "${CROWDGPT_NO_TOKENIZER:-1}"
+      CROWDGPT_DEBUG: "${CROWDGPT_DEBUG:-0}"
+      CROWDGPT_SYNC_CODE: "${CROWDGPT_SYNC_CODE:-1}"
+      CROWDGPT_SERVER: "${CROWDGPT_SERVER:-}"
+      CROWDGPT_USER: "${CROWDGPT_USER:-}"
+      CROWDGPT_PASSWORD: "${CROWDGPT_PASSWORD:-}"
+      CROWDGPT_TOKEN: "${CROWDGPT_TOKEN:-}"
+      CROWDGPT_BACKEND: "${CROWDGPT_BACKEND:-}"
+      CROWDGPT_VRAM_GB: "${CROWDGPT_VRAM_GB:-6}"
+      CROWDGPT_ROUNDS: "${CROWDGPT_ROUNDS:-}"
+
+    volumes:
+      # Everything the client writes lives here: client.py/client.html updates,
+      # checkpoints, downloaded weights, auth token, device id, HF cache.
+      - crowdgpt-app:/app
+      - ./docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh:ro
+
+      # Pass through the host NVIDIA driver libraries and nvidia-smi directly
+      # so GPU access works even without nvidia-container-toolkit installed.
+      - /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so:/usr/lib/x86_64-linux-gnu/libcuda.so:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-nvvm.so.4:/usr/lib/x86_64-linux-gnu/libnvidia-nvvm.so.4:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-cfg.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-cfg.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libcudadebugger.so.1:/usr/lib/x86_64-linux-gnu/libcudadebugger.so.1:ro
+
+    # Expose host /dev/nvidia* character devices directly without requiring
+    # nvidia-container-toolkit (the entrypoint immediately drops root to the
+    # unprivileged `crowd` user via gosu).
+    privileged: true
+
+    command: ["--headless"]
+
+volumes:
+  crowdgpt-app:
